@@ -5,6 +5,7 @@ const BlockedSlot = require("../models/BlockedSlot");
 const User = require("../models/User");
 const Transaction = require("../models/Transaction");
 
+
 // Helper: get day name from date string
 const getDayOfWeek = (dateStr) => {
   const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -111,7 +112,7 @@ const blockDateIfAllSlotsBooked = async (date, availability) => {
 const createAppointment = async (req, res) => {
   try {
 
-    const { username, mobile, appointment_date, appointment_time, description, duration } = req.body;
+    const { username, mobile, appointment_date, appointment_time, description, duration, amount, payment_method = 'Online', status, transaction_id} = req.body;
 
     const dayOfWeek = getDayOfWeek(appointment_date);
 
@@ -176,13 +177,27 @@ const createAppointment = async (req, res) => {
       duration,
     });
 
+    let transaction = null;
+    if (appointment) {
+      transaction = await Transaction.create({
+        user_id: appointment.user_id,
+        appointment_id: appointment.id,
+        amount,
+        payment_method,
+        status: status || "pending",
+        transaction_reference:transaction_id,
+        notes: `Payment for appointment on ${appointment_date} at ${appointment_time}`,
+      });
+    }
+
+
     // Auto-block the date if all slots are now booked
     await blockDateIfAllSlotsBooked(appointment_date, availability);
 
     res.status(200).json({
       success: true,
       message: "Appointment created successfully",
-      data: appointment,
+      data: transaction,
     });
   } catch (error) {
     res.status(500).json({ status: 500, message: error.message });
