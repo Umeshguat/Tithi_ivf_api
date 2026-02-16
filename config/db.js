@@ -15,7 +15,7 @@ const sequelize = new Sequelize(
 const connectDB = async () => {
   try {
     await sequelize.authenticate();
-    console.log(`MySQL Connected: ${process.env.DB_HOST}`);
+    console.log(`✅ MySQL Connected: ${process.env.DB_HOST}`);
   } catch (error) {
     console.error(`Error: ${error.message}`);
     process.exit(1);
