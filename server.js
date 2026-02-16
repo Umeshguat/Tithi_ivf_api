@@ -1,4 +1,5 @@
 const express = require("express");
+const path = require("path");
 const cors = require("cors");
 const dotenv = require("dotenv");
 
@@ -14,10 +15,14 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Serve invoice PDFs as static files
+app.use("/invoices", express.static(path.join(__dirname, "invoices")));
+
 // Routes
 app.use("/api/auth", require("./routes/authRoutes"));
 app.use("/api/appointments", require("./routes/appointmentRoutes"));
 app.use("/api/availability", require("./routes/availabilityRoutes"));
+app.use("/api/transactions", require("./routes/transactionRoutes"));
 
 // Health check
 app.get("/", (req, res) => {
