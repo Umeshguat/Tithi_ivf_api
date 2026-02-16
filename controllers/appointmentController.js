@@ -110,8 +110,8 @@ const blockDateIfAllSlotsBooked = async (date, availability) => {
 // @route   POST /api/appointments
 const createAppointment = async (req, res) => {
   try {
-  
-    const { username, mobile,  appointment_date, appointment_time, description, duration } = req.body;
+
+    const { username, mobile, appointment_date, appointment_time, description, duration } = req.body;
 
     const dayOfWeek = getDayOfWeek(appointment_date);
 
@@ -126,7 +126,7 @@ const createAppointment = async (req, res) => {
     if (!user) {
       user = await User.create({ name: username, mobile });
     }
-    
+
 
     const availability = await Availability.findOne({
       where: { day_of_week: dayOfWeek, is_active: true },
@@ -193,12 +193,14 @@ const createAppointment = async (req, res) => {
 // @route   PUT /api/appointments/reschedule
 const rescheduleAppointment = async (req, res) => {
   try {
-    const user = req.user;
-    const { appointment_date, appointment_time } = req.body;
+
+    const { user_id, appointment_date, appointment_time } = req.body;
 
     const appointment = await Appointment.findOne({
-      where: { user_id: user.id },
+      where: { user_id: user_id },
+      order: [['createdAt', 'DESC']]
     });
+
 
     if (!appointment) {
       return res.status(404).json({
