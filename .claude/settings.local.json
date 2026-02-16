@@ -3,7 +3,8 @@
     "allow": [
       "Bash(cd:*)",
       "Bash(npm init:*)",
-      "Bash(npm install:*)"
+      "Bash(npm install:*)",
+      "Read(//e//**)"
     ]
   }
 }

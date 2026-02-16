@@ -12,7 +12,7 @@ const { protect } = require("../middleware/auth");
 
 // User routes (authenticated)
 router.post("/",  createAppointment);
-router.put("/reschedule",  rescheduleAppointment);
+router.post("/reschedule",  rescheduleAppointment);
 router.post("/available-slots",  getAvailableSlots);
 
 // Admin routes (authenticated)
