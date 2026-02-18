@@ -32,18 +32,29 @@ const createAvailability = async (req, res) => {
   }
 };
 
-// @desc    Get all availabilities
-// @route   GET /api/availability
+// @desc    Get all availabilities (paginated)
+// @route   GET /api/availability?page=1&limit=10
 const getAvailabilities = async (req, res) => {
   try {
-    const availabilities = await Availability.findAll({
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const offset = (page - 1) * limit;
+
+    const { count, rows } = await Availability.findAndCountAll({
       order: [["id", "ASC"]],
+      limit,
+      offset,
     });
 
     res.status(200).json({
       success: true,
       message: "Availabilities retrieved successfully",
-      data: availabilities,
+      data: {
+        data: rows,
+        total: count,
+        current_page: page,
+        last_page: Math.ceil(count / limit),
+      },
     });
   } catch (error) {
     res.status(500).json({ status: 500, message: error.message });
