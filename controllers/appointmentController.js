@@ -287,11 +287,13 @@ const getAvailableSlots = async (req, res) => {
     let morningSlots = [];
     let eveningSlots = [];
 
-    if (availability.morning_start_time && availability.morning_end_time) {
+    const isValidTime = (time) => time && time !== "00:00:00";
+
+    if (isValidTime(availability.morning_start_time) && isValidTime(availability.morning_end_time)) {
       morningSlots = generateTimeSlots(availability.morning_start_time, availability.morning_end_time, availability.slot_duration);
     }
-
-    if (availability.evening_start_time && availability.evening_end_time) {
+    
+    if (isValidTime(availability.evening_start_time) && isValidTime(availability.evening_end_time)) {
       eveningSlots = generateTimeSlots(availability.evening_start_time, availability.evening_end_time, availability.slot_duration);
     }
 
