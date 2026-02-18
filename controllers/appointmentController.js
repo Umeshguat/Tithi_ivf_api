@@ -65,11 +65,19 @@ const isSlotBlocked = (slot, blockedSlots) => {
 
 // Helper: block date if all slots are booked
 const blockDateIfAllSlotsBooked = async (date, availability) => {
-  const allSlots = generateTimeSlots(
-    availability.start_time,
-    availability.end_time,
-    availability.slot_duration
-  );
+  let allSlots = [];
+
+  if (availability.morning_start_time && availability.morning_end_time) {
+    allSlots = allSlots.concat(
+      generateTimeSlots(availability.morning_start_time, availability.morning_end_time, availability.slot_duration)
+    );
+  }
+
+  if (availability.evening_start_time && availability.evening_end_time) {
+    allSlots = allSlots.concat(
+      generateTimeSlots(availability.evening_start_time, availability.evening_end_time, availability.slot_duration)
+    );
+  }
 
   const bookedCount = await Appointment.count({
     where: {
@@ -275,12 +283,20 @@ const getAvailableSlots = async (req, res) => {
       });
     }
 
-    // Generate time slots
-    const slots = generateTimeSlots(
-      availability.start_time,
-      availability.end_time,
-      availability.slot_duration
-    );
+    // Generate time slots for morning and evening
+    let slots = [];
+
+    if (availability.morning_start_time && availability.morning_end_time) {
+      slots = slots.concat(
+        generateTimeSlots(availability.morning_start_time, availability.morning_end_time, availability.slot_duration)
+      );
+    }
+
+    if (availability.evening_start_time && availability.evening_end_time) {
+      slots = slots.concat(
+        generateTimeSlots(availability.evening_start_time, availability.evening_end_time, availability.slot_duration)
+      );
+    }
 
     // Get booked appointments
     const bookedAppointments = await Appointment.findAll({

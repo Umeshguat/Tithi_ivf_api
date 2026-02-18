@@ -13,13 +13,21 @@ const Availability = sequelize.define(
       type: DataTypes.STRING,
       allowNull: false,
     },
-    start_time: {
+    morning_start_time: {
       type: DataTypes.TIME,
-      allowNull: false,
+      allowNull: true,
     },
-    end_time: {
+    morning_end_time: {
       type: DataTypes.TIME,
-      allowNull: false,
+      allowNull: true,
+    },
+    evening_start_time: {
+      type: DataTypes.TIME,
+      allowNull: true,
+    },
+    evening_end_time: {
+      type: DataTypes.TIME,
+      allowNull: true,
     },
     slot_duration: {
       type: DataTypes.INTEGER,

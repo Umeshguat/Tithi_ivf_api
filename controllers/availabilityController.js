@@ -4,7 +4,7 @@ const Availability = require("../models/Availability");
 // @route   POST /api/availability
 const createAvailability = async (req, res) => {
   try {
-    const { day_of_week, start_time, end_time, slot_duration, is_active } = req.body;
+    const { day_of_week, morning_start_time, morning_end_time, evening_start_time, evening_end_time, slot_duration, is_active } = req.body;
 
     const existing = await Availability.findOne({ where: { day_of_week } });
     if (existing) {
@@ -16,8 +16,10 @@ const createAvailability = async (req, res) => {
 
     const availability = await Availability.create({
       day_of_week,
-      start_time,
-      end_time,
+      morning_start_time,
+      morning_end_time,
+      evening_start_time,
+      evening_end_time,
       slot_duration,
       is_active: is_active !== undefined ? is_active : true,
     });
@@ -97,12 +99,14 @@ const updateAvailability = async (req, res) => {
       });
     }
 
-    const { day_of_week, start_time, end_time, slot_duration, is_active } = req.body;
+    const { day_of_week, morning_start_time, morning_end_time, evening_start_time, evening_end_time, slot_duration, is_active } = req.body;
 
     await availability.update({
       day_of_week: day_of_week || availability.day_of_week,
-      start_time: start_time || availability.start_time,
-      end_time: end_time || availability.end_time,
+      morning_start_time: morning_start_time !== undefined ? morning_start_time : availability.morning_start_time,
+      morning_end_time: morning_end_time !== undefined ? morning_end_time : availability.morning_end_time,
+      evening_start_time: evening_start_time !== undefined ? evening_start_time : availability.evening_start_time,
+      evening_end_time: evening_end_time !== undefined ? evening_end_time : availability.evening_end_time,
       slot_duration: slot_duration || availability.slot_duration,
       is_active: is_active !== undefined ? is_active : availability.is_active,
     });
