@@ -21,7 +21,7 @@ app.use("/invoices", express.static(path.join(__dirname, "invoices")));
 // Routes
 app.use("/api/auth", require("./routes/authRoutes"));
 app.use("/api/appointments", require("./routes/appointmentRoutes"));
-app.use("/api/availability", require("./routes/availabilityRoutes"));
+app.use("/api/admin/availability", require("./routes/availabilityRoutes"));
 app.use("/api/transactions", require("./routes/transactionRoutes"));
 
 // Health check
