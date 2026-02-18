@@ -283,19 +283,16 @@ const getAvailableSlots = async (req, res) => {
       });
     }
 
-    // Generate time slots for morning and evening
-    let slots = [];
+    // Generate time slots for morning and evening separately
+    let morningSlots = [];
+    let eveningSlots = [];
 
     if (availability.morning_start_time && availability.morning_end_time) {
-      slots = slots.concat(
-        generateTimeSlots(availability.morning_start_time, availability.morning_end_time, availability.slot_duration)
-      );
+      morningSlots = generateTimeSlots(availability.morning_start_time, availability.morning_end_time, availability.slot_duration);
     }
 
     if (availability.evening_start_time && availability.evening_end_time) {
-      slots = slots.concat(
-        generateTimeSlots(availability.evening_start_time, availability.evening_end_time, availability.slot_duration)
-      );
+      eveningSlots = generateTimeSlots(availability.evening_start_time, availability.evening_end_time, availability.slot_duration);
     }
 
     // Get booked appointments
@@ -315,7 +312,7 @@ const getAvailableSlots = async (req, res) => {
     });
 
     // Mark slots as available or booked
-    const availableSlots = slots.map((slot) => {
+    const markSlots = (slots) => slots.map((slot) => {
       const slotStart = slot.split("-")[0] + ":00"; // "10:00-10:15" → "10:00:00"
       const isAvailable = !bookedSlots.includes(slotStart);
       return { time: slot, is_available: isAvailable };
@@ -323,7 +320,8 @@ const getAvailableSlots = async (req, res) => {
 
     res.status(200).json({
       date,
-      slots: availableSlots,
+      morning: markSlots(morningSlots),
+      evening: markSlots(eveningSlots),
     });
   } catch (error) {
     res.status(500).json({ status: 500, message: error.message });
