@@ -9,6 +9,11 @@ const Appointment = sequelize.define(
       primaryKey: true,
       autoIncrement: true,
     },
+    booking_id: {
+      type: DataTypes.STRING,
+      allowNull: false,
+      unique: true,
+    },
     user_id: {
       type: DataTypes.INTEGER,
       allowNull: false,

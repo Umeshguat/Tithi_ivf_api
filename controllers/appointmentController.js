@@ -120,12 +120,12 @@ const blockDateIfAllSlotsBooked = async (date, availability) => {
 const createAppointment = async (req, res) => {
   try {
 
-    const { username, mobile, appointment_date, appointment_time, description, duration, amount, payment_method = 'Online', status, transaction_id} = req.body;
+    const { username, mobile, appointment_date, appointment_time, description, duration, amount, payment_method = 'Online', status, transaction_id } = req.body;
 
     const dayOfWeek = getDayOfWeek(appointment_date);
 
 
-    
+
     let [user] = await User.findOrCreate({
       where: { mobile },
       defaults: { name: username, mobile },
@@ -168,15 +168,20 @@ const createAppointment = async (req, res) => {
         message: "This time slot is already booked",
       });
     }
-
     const appointment = await Appointment.create({
       user_id: user.id,
+      booking_id: `${Date.now()}`,
       appointment_date,
       appointment_time,
       status: "pending",
       description,
       duration,
     });
+
+    const booking_id = `${appointment.id}${Date.now()}`;
+    await appointment.update({ booking_id });
+
+
 
     let transaction = null;
     if (appointment) {
@@ -186,7 +191,7 @@ const createAppointment = async (req, res) => {
         amount,
         payment_method,
         status: status || "pending",
-        transaction_reference:transaction_id,
+        transaction_reference: transaction_id,
         notes: `Payment for appointment on ${appointment_date} at ${appointment_time}`,
       });
     }
@@ -198,7 +203,10 @@ const createAppointment = async (req, res) => {
     res.status(200).json({
       success: true,
       message: "Appointment created successfully",
-      data: transaction,
+      data: {
+        booking_id: appointment.booking_id,
+        transaction,
+      },
     });
   } catch (error) {
     console.error("Create appointment error:", error);
@@ -287,7 +295,7 @@ const getAvailableSlots = async (req, res) => {
     if (isValidTime(availability.morning_start_time) && isValidTime(availability.morning_end_time)) {
       morningSlots = generateTimeSlots(availability.morning_start_time, availability.morning_end_time, availability.slot_duration);
     }
-    
+
     if (isValidTime(availability.evening_start_time) && isValidTime(availability.evening_end_time)) {
       eveningSlots = generateTimeSlots(availability.evening_start_time, availability.evening_end_time, availability.slot_duration);
     }
