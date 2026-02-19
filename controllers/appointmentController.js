@@ -195,7 +195,9 @@ const createAppointment = async (req, res) => {
         notes: `Payment for appointment on ${appointment_date} at ${appointment_time}`,
       });
     }
+    
 
+    
 
     // Auto-block the date if all slots are now booked
     await blockDateIfAllSlotsBooked(appointment_date, availability);
@@ -204,7 +206,9 @@ const createAppointment = async (req, res) => {
       success: true,
       message: "Appointment created successfully",
       data: {
-        booking_id: appointment.booking_id,
+        username: user.name,
+        mobile: user.mobile,
+        appointment,
         transaction,
       },
     });
