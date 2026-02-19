@@ -38,7 +38,7 @@ const User = sequelize.define(
         notEmpty: { msg: "Please provide an email" },
       },
       set(value) {
-        this.setDataValue("email", value.toLowerCase().trim());
+        this.setDataValue("email", value ? value.toLowerCase().trim() : value);
       },
     },
     password: {

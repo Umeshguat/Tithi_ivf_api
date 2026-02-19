@@ -125,18 +125,11 @@ const createAppointment = async (req, res) => {
     const dayOfWeek = getDayOfWeek(appointment_date);
 
 
-
-    let user = await User.findOne({
-      where: {
-        [Op.or]: [{ name: username }, { mobile }],
-      },
+    
+    let [user] = await User.findOrCreate({
+      where: { mobile },
+      defaults: { name: username, mobile },
     });
-
-    if (!user) {
-      user = await User.create({ name: username, mobile });
-    }
-
-
     const availability = await Availability.findOne({
       where: { day_of_week: dayOfWeek, is_active: true },
     });
@@ -208,7 +201,9 @@ const createAppointment = async (req, res) => {
       data: transaction,
     });
   } catch (error) {
-    res.status(500).json({ status: 500, message: error.message });
+    console.error("Create appointment error:", error);
+    const details = error.errors ? error.errors.map(e => e.message) : [];
+    res.status(500).json({ status: 500, message: error.message, details });
   }
 };
 
