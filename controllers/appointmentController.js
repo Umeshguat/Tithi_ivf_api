@@ -431,7 +431,7 @@ const getAppointmentDetails = async (req, res) => {
     const { id } = req.params;
 
     const appointment = await Appointment.findOne({
-      where: { id },
+      where: { booking_id: id },
       include: [{ model: User, as: "user" }],
     });
 
