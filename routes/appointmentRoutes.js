@@ -18,6 +18,6 @@ router.post("/available-slots",  getAvailableSlots);
 // Admin routes (authenticated)
 router.get("/",  getAppointments);
 router.put("/status",  updateAppointmentStatus);
-router.get("/:id",  getAppointmentDetails);
+router.post("/get-appointment-detail",  getAppointmentDetails);
 
 module.exports = router;

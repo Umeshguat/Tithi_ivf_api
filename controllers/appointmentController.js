@@ -195,9 +195,9 @@ const createAppointment = async (req, res) => {
         notes: `Payment for appointment on ${appointment_date} at ${appointment_time}`,
       });
     }
-    
 
-    
+
+
 
     // Auto-block the date if all slots are now booked
     await blockDateIfAllSlotsBooked(appointment_date, availability);
@@ -428,12 +428,20 @@ const updateAppointmentStatus = async (req, res) => {
 // @route   GET /api/appointments/:id
 const getAppointmentDetails = async (req, res) => {
   try {
-    const { id } = req.params;
+    const { booking_id, mobile } = req.body;
 
     const appointment = await Appointment.findOne({
-      where: { booking_id: id },
+      where: { booking_id },
       include: [{ model: User, as: "user" }],
     });
+
+
+    if (mobile && appointment?.user?.mobile !== mobile) {
+      return res.status(404).json({
+        success: false,
+        message: "Appointment not found for the provided mobile number",
+      });
+    }
 
     if (!appointment) {
       return res.status(404).json({
