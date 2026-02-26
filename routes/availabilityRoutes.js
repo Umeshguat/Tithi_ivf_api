@@ -6,11 +6,14 @@ const {
   getAvailability,
   updateAvailability,
   deleteAvailability,
+  getAllUsers,
 } = require("../controllers/availabilityController");
 const { protect, admin } = require("../middleware/auth");
 
 router.post("/", protect, admin, createAvailability);
 router.get("/", protect, admin, getAvailabilities);
+
+router.get("/users", protect, admin, getAllUsers);
 router.get("/:id", protect, admin, getAvailability);
 router.put("/:id", protect, admin, updateAvailability);
 router.delete("/:id", protect, admin, deleteAvailability);

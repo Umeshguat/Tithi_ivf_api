@@ -1,4 +1,5 @@
 const Availability = require("../models/Availability");
+const User = require("../models/User");
 
 // @desc    Create availability
 // @route   POST /api/availability
@@ -145,10 +146,42 @@ const deleteAvailability = async (req, res) => {
   }
 };
 
+const getAllUsers = async (req, res) => {
+  try {
+
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const offset = (page - 1) * limit;
+
+    const { count, rows } = await User.findAndCountAll({
+      attributes: ["id", "name", "email", "role"],
+      order: [["id", "ASC"]],
+      where: { role: "user" },
+      limit,
+      offset,
+    });
+
+
+    res.status(200).json({
+      success: true,
+      message: "Users retrieved successfully",
+      data: rows,
+      total: count,
+      current_page: page,
+      last_page: Math.ceil(count / limit),
+
+
+    });
+  } catch (error) {
+    res.status(500).json({ status: 500, message: error.message });
+  }
+}
+
 module.exports = {
   createAvailability,
   getAvailabilities,
   getAvailability,
   updateAvailability,
   deleteAvailability,
+  getAllUsers,
 };
