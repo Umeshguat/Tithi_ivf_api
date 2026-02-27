@@ -1,5 +1,6 @@
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
+const Apointment = require("../models/Appointment");
 
 // Generate JWT token
 const generateToken = (id) => {
@@ -83,4 +84,24 @@ const getProfile = async (req, res) => {
   }
 };
 
-module.exports = { register, login, getProfile };
+const getDashboard = async (req, res) => {
+  try {
+
+    const appointments = await Apointment.findAll();
+    const totalUsers = await User.findAll({ where: { role: "user" } });
+
+    res.json({
+      success: 200,
+      message: "Welcome to the dashboard!",
+      totalusers: totalUsers.length,
+      appointments: appointments.length,
+      pendingAppointments: appointments.filter(app => app.status === "pending").length,
+      completedAppointments: appointments.filter(app => app.status === "completed").length,
+      
+    });
+  } catch (error) {
+    res.status(500).json({ success: 500, message: error.message });
+  }
+}
+
+module.exports = { register, login, getProfile, getDashboard };
