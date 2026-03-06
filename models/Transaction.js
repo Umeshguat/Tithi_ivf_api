@@ -11,7 +11,7 @@ const Transaction = sequelize.define(
     },
     user_id: {
       type: DataTypes.INTEGER,
-      allowNull: false,
+      allowNull: true``,
       references: {
         model: "Users",
         key: "id",
@@ -19,11 +19,11 @@ const Transaction = sequelize.define(
     },
     appointment_id: {
       type: DataTypes.INTEGER,
-      allowNull: false,
+      allowNull: true,
     },
     amount: {
       type: DataTypes.DECIMAL(10, 2),
-      allowNull: false,
+      allowNull: true,
     },
     payment_method: {
       type: DataTypes.STRING,

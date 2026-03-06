@@ -24,9 +24,9 @@ const createOrder = async (req, res) => {
     }
 
     const appointment = await Appointment.findOne({
-      where: { id: appointment_id  },
+      where: { id: appointment_id },
     });
-    
+
 
     if (!appointment) {
       return res.status(404).json({
@@ -227,59 +227,29 @@ const getPaymentById = async (req, res) => {
 // @access  Private (User)
 const createPaymentLink = async (req, res) => {
   try {
-    const { appointment_id, amount, customer_name, customer_email, customer_contact, description, notes } = req.body;
+    const { amount, customer_name, customer_email, customer_contact, description, notes } = req.body;
 
-    if (!appointment_id || !amount) {
+    if (!amount) {
       return res.status(400).json({
         success: false,
-        message: "appointment_id and amount are required",
+        message: "amount is required",
       });
     }
-
-    const appointment = await Appointment.findOne({
-      where: { id: appointment_id },
-    });
-
-    if (!appointment) {
-      return res.status(404).json({
-        success: false,
-        message: "Appointment not found",
-      });
-    }
-
-    // Check if a completed transaction already exists
-    const existing = await Transaction.findOne({
-      where: { appointment_id, status: "completed" },
-    });
-    if (existing) {
-      return res.status(400).json({
-        success: false,
-        message: "Payment already completed for this appointment",
-      });
-    }
-
-    // Fetch user details for customer info
-    const user = await User.findOne({ where: { id: appointment.user_id } });
 
     const paymentLinkOptions = {
       amount: Math.round(amount * 100), // amount in paise
       currency: "INR",
-      description: description || `Payment for Appointment #${appointment_id}`,
+      description: description || `Payment for Appointment #${Date.now()}`,
       customer: {
-        name: customer_name || user?.name || "",
-        email: customer_email || user?.email || "",
-        contact: customer_contact || user?.phone || "",
+        name: customer_name || "",
+        email: customer_email || "",
+        contact: customer_contact || "",
       },
       notify: {
         sms: true,
         email: true,
       },
       reminder_enable: true,
-      notes: {
-        appointment_id: String(appointment_id),
-        user_id: String(appointment.user_id),
-        ...(notes || {}),
-      },
       callback_url: process.env.RAZORPAY_CALLBACK_URL || "",
       callback_method: "get",
     };
@@ -288,8 +258,6 @@ const createPaymentLink = async (req, res) => {
 
     // Create a pending transaction
     const transaction = await Transaction.create({
-      user_id: appointment.user_id,
-      appointment_id,
       amount,
       payment_method: "razorpay_payment_link",
       status: "pending",
