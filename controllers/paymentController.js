@@ -222,9 +222,101 @@ const getPaymentById = async (req, res) => {
   }
 };
 
+// @desc    Create Razorpay payment link
+// @route   POST /api/payments/create-payment-link
+// @access  Private (User)
+const createPaymentLink = async (req, res) => {
+  try {
+    const { appointment_id, amount, customer_name, customer_email, customer_contact, description, notes } = req.body;
+
+    if (!appointment_id || !amount) {
+      return res.status(400).json({
+        success: false,
+        message: "appointment_id and amount are required",
+      });
+    }
+
+    const appointment = await Appointment.findOne({
+      where: { id: appointment_id },
+    });
+
+    if (!appointment) {
+      return res.status(404).json({
+        success: false,
+        message: "Appointment not found",
+      });
+    }
+
+    // Check if a completed transaction already exists
+    const existing = await Transaction.findOne({
+      where: { appointment_id, status: "completed" },
+    });
+    if (existing) {
+      return res.status(400).json({
+        success: false,
+        message: "Payment already completed for this appointment",
+      });
+    }
+
+    // Fetch user details for customer info
+    const user = await User.findOne({ where: { id: appointment.user_id } });
+
+    const paymentLinkOptions = {
+      amount: Math.round(amount * 100), // amount in paise
+      currency: "INR",
+      description: description || `Payment for Appointment #${appointment_id}`,
+      customer: {
+        name: customer_name || user?.name || "",
+        email: customer_email || user?.email || "",
+        contact: customer_contact || user?.phone || "",
+      },
+      notify: {
+        sms: true,
+        email: true,
+      },
+      reminder_enable: true,
+      notes: {
+        appointment_id: String(appointment_id),
+        user_id: String(appointment.user_id),
+        ...(notes || {}),
+      },
+      callback_url: process.env.RAZORPAY_CALLBACK_URL || "",
+      callback_method: "get",
+    };
+
+    const paymentLink = await razorpay.paymentLink.create(paymentLinkOptions);
+
+    // Create a pending transaction
+    const transaction = await Transaction.create({
+      user_id: appointment.user_id,
+      appointment_id,
+      amount,
+      payment_method: "razorpay_payment_link",
+      status: "pending",
+      razorpay_order_id: paymentLink.id,
+      notes: JSON.stringify(notes),
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "Payment link created successfully",
+      data: {
+        payment_link_id: paymentLink.id,
+        payment_link_url: paymentLink.short_url,
+        amount: paymentLink.amount,
+        currency: paymentLink.currency,
+        transaction_id: transaction.id,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ status: 500, message: error.message });
+  }
+};
+
 module.exports = {
   createOrder,
   verifyPayment,
   getMyPayments,
   getPaymentById,
+  createPaymentLink,
 };
