@@ -23,6 +23,7 @@ app.use("/api/auth", require("./routes/authRoutes"));
 app.use("/api/appointments", require("./routes/appointmentRoutes"));
 app.use("/api/admin/availability", require("./routes/availabilityRoutes"));
 app.use("/api/transactions", require("./routes/transactionRoutes"));
+app.use("/api/payments", require("./routes/paymentRoutes"));
 
 // Health check
 app.get("/", (req, res) => {
@@ -36,6 +37,8 @@ const PORT = process.env.PORT || 5000;
 
 const startServer = async () => {
   await connectDB();
+  const Transaction = require("./models/Transaction");
+  await Transaction.sync({ alter: true });
   await sequelize.sync();
   console.log("✅ Database tables synced");
   app.listen(PORT, () => {
