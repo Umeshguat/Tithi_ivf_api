@@ -3,6 +3,7 @@ const crypto = require("crypto");
 const Transaction = require("../models/Transaction");
 const Appointment = require("../models/Appointment");
 const User = require("../models/User");
+const Services = require("../models/Service");
 
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID,
@@ -236,8 +237,20 @@ const createPaymentLink = async (req, res) => {
       });
     }
 
+    const service = await Services.findOne({
+      where: { service_charge: amount },
+    });
+
+    if (!service) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid service charge amount",
+      });
+    }
+
+
     const paymentLinkOptions = {
-      amount: Math.round(amount * 100), // amount in paise
+      amount: Math.round(amount), // amount in paise
       currency: "INR",
       description: description || `Payment for Appointment #${Date.now()}`,
       customer: {
