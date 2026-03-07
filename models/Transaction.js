@@ -11,7 +11,7 @@ const Transaction = sequelize.define(
     },
     user_id: {
       type: DataTypes.INTEGER,
-      allowNull: true``,
+      allowNull: true,
       references: {
         model: "Users",
         key: "id",
