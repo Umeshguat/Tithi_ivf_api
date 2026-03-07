@@ -250,7 +250,7 @@ const createPaymentLink = async (req, res) => {
 
 
     const paymentLinkOptions = {
-      amount: Math.round(amount), // amount in paise
+      amount: Math.round(amount * 100), // amount in paise
       currency: "INR",
       description: description || `Payment for Appointment #${Date.now()}`,
       customer: {
