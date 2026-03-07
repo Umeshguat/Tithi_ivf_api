@@ -120,7 +120,7 @@ const blockDateIfAllSlotsBooked = async (date, availability) => {
 const createAppointment = async (req, res) => {
   try {
 
-    const { username, mobile, appointment_date, appointment_time, description, duration, amount, payment_method = 'Online', status, transaction_id, payment_link_id } = req.body;
+    const { username, mobile, appointment_date, appointment_time, description, duration, amount, payment_method = 'Razorpay', status, transaction_id, payment_link_id } = req.body;
 
     const dayOfWeek = getDayOfWeek(appointment_date);
 
@@ -204,6 +204,15 @@ const createAppointment = async (req, res) => {
       }
     }
 
+    const transactionData = {
+      user_id: user.id,
+      appointment_id: appointment.id,
+      amount,
+      payment_method,
+      status: status || "pending",
+      transaction_reference: transaction_id || null,
+      razorpay_payment_id: transaction_id || null,
+    };
 
 
 
@@ -217,7 +226,7 @@ const createAppointment = async (req, res) => {
         username: user.name,
         mobile: user.mobile,
         appointment,
-        transaction,
+        transaction: transactionData,
       },
     });
   } catch (error) {
