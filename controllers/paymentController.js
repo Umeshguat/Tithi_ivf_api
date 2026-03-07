@@ -228,7 +228,7 @@ const getPaymentById = async (req, res) => {
 // @access  Private (User)
 const createPaymentLink = async (req, res) => {
   try {
-    const { amount, customer_name, customer_email, customer_contact, description, notes } = req.body;
+    const { amount, customer_name, customer_email, customer_contact, description, notes, callback_url } = req.body;
 
     if (!amount) {
       return res.status(400).json({
@@ -238,7 +238,7 @@ const createPaymentLink = async (req, res) => {
     }
 
     const service = await Services.findOne({
-      where: { service_charge: amount },
+      where: { service_charge: amount * 100 },
     });
 
     if (!service) {
@@ -263,7 +263,7 @@ const createPaymentLink = async (req, res) => {
         email: true,
       },
       reminder_enable: true,
-      callback_url: process.env.RAZORPAY_CALLBACK_URL || "",
+      callback_url: callback_url || process.env.RAZORPAY_CALLBACK_URL || "",
       callback_method: "get",
     };
 
