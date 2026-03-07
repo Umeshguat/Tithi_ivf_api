@@ -120,7 +120,7 @@ const blockDateIfAllSlotsBooked = async (date, availability) => {
 const createAppointment = async (req, res) => {
   try {
 
-    const { username, mobile, appointment_date, appointment_time, description, duration, amount, payment_method = 'Online', status, transaction_id } = req.body;
+    const { username, mobile, appointment_date, appointment_time, description, duration, amount, payment_method = 'Online', status, transaction_id, payment_link_id } = req.body;
 
     const dayOfWeek = getDayOfWeek(appointment_date);
 
@@ -184,16 +184,24 @@ const createAppointment = async (req, res) => {
 
 
     let transaction = null;
-    if (appointment) {
-      transaction = await Transaction.create({
-        user_id: appointment.user_id,
-        appointment_id: appointment.id,
-        amount,
-        payment_method,
-        status: status || "pending",
-        transaction_reference: transaction_id,
-        notes: `Payment for appointment on ${appointment_date} at ${appointment_time}`,
+
+
+    if (payment_link_id) {
+      const transaction = await Transaction.findOne({
+        where: { razorpay_order_id: payment_link_id },
       });
+
+      if (transaction) {
+        await transaction.update({
+          user_id: user.id,
+          appointment_id: appointment.id,
+          amount,
+          payment_method,
+          status: status || "pending",
+          transaction_reference: transaction_id || null,
+          razorpay_payment_id: transaction_id || null,
+        });
+      }
     }
 
 

@@ -238,7 +238,7 @@ const createPaymentLink = async (req, res) => {
     }
 
     const service = await Services.findOne({
-      where: { service_charge: amount * 100 },
+      where: { service_charge: amount },
     });
 
     if (!service) {
