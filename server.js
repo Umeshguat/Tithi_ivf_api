@@ -25,6 +25,7 @@ app.use("/api/admin/availability", require("./routes/availabilityRoutes"));
 app.use("/api/transactions", require("./routes/transactionRoutes"));
 app.use("/api/payments", require("./routes/paymentRoutes"));
 app.use("/api/services", require("./routes/serviceRoutes"));
+app.use("/api/holidays", require("./routes/holidayRoutes"));
 
 // Health check
 app.get("/", (req, res) => {
