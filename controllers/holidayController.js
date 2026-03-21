@@ -3,13 +3,13 @@ const Holiday = require("../models/Holiday");
 // Create a new holiday
 const createHoliday = async (req, res, next) => {
   try {
-    const { date, reason } = req.body;
+    const { date, reason, morning_close, evening_close } = req.body;
 
     if (!date) {
       return res.status(400).json({ message: "date is required" });
     }
 
-    const holiday = await Holiday.create({ date, reason });
+    const holiday = await Holiday.create({ date, reason, morning_close, evening_close });
     res.status(201).json({ success: 201, message: "Holiday created successfully", data: holiday });
   } catch (error) {
     next(error);
@@ -44,7 +44,7 @@ const getHolidayById = async (req, res, next) => {
 // Update a holiday
 const updateHoliday = async (req, res, next) => {
   try {
-    const { id, date, reason } = req.body;
+    const { id, date, reason, morning_close, evening_close } = req.body;
 
     if (!id) {
       return res.status(400).json({ message: "id is required" });
@@ -56,7 +56,7 @@ const updateHoliday = async (req, res, next) => {
       return res.status(404).json({ message: "Holiday not found" });
     }
 
-    await holiday.update({ date, reason });
+    await holiday.update({ date, reason, morning_close, evening_close });
 
     res.status(200).json({ success: 200, message: "Holiday updated successfully", data: holiday });
   } catch (error) {

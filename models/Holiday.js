@@ -17,6 +17,16 @@ const Holiday = sequelize.define(
       type: DataTypes.STRING,
       allowNull: true,
     },
+    morning_close: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
+    evening_close: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
   },
   {
     timestamps: true,
