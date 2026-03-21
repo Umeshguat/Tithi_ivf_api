@@ -4,6 +4,7 @@ const Availability = require("../models/Availability");
 const BlockedSlot = require("../models/BlockedSlot");
 const User = require("../models/User");
 const Transaction = require("../models/Transaction");
+const Holiday = require("../models/Holiday");
 
 
 // Helper: get day name from date string
@@ -344,10 +345,25 @@ const getAvailableSlots = async (req, res) => {
       return { time: slot, is_available: isAvailable };
     });
 
+    // Get all holidays for the month of the requested date
+    const requestedDate = new Date(date);
+    const monthStart = new Date(requestedDate.getFullYear(), requestedDate.getMonth(), 1);
+    const monthEnd = new Date(requestedDate.getFullYear(), requestedDate.getMonth() + 1, 0);
+
+    const holidays = await Holiday.findAll({
+      where: {
+        date: {
+          [Op.between]: [monthStart, monthEnd],
+        },
+      },
+      order: [["date", "ASC"]],
+    });
+
     res.status(200).json({
       date,
       morning: markSlots(morningSlots),
       evening: markSlots(eveningSlots),
+      holidays,
     });
   } catch (error) {
     res.status(500).json({ status: 500, message: error.message });
