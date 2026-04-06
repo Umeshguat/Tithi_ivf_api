@@ -39,7 +39,13 @@ const PORT = process.env.PORT || 5000;
 
 const startServer = async () => {
   await connectDB();
-  require("./models/Transaction");
+  // Load all models so associations are registered before sync
+  require("./models/User");
+  require("./models/Appointment"); // This also loads Transaction & sets up associations
+  require("./models/Service");
+  require("./models/Availability");
+  require("./models/BlockedSlot");
+  require("./models/Holiday");
   await sequelize.sync({ alter: true });
   console.log("✅ Database tables synced");
   app.listen(PORT, () => {
