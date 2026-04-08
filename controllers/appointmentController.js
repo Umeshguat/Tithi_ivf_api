@@ -331,16 +331,19 @@ const getAvailableSlots = async (req, res) => {
       attributes: ["appointment_time"],
     });
 
-    const bookedSlots = bookedAppointments.map((a) => {
-      const time = a.appointment_time;
-      // Normalize to HH:mm:ss
-      const parts = time.split(":");
-      return `${parts[0].padStart(2, "0")}:${parts[1].padStart(2, "0")}:00`;
-    });
+    // Normalize a time value (e.g. "10:00-10:15", "10:00", "10:00:00") to "HH:mm"
+    const normalizeStart = (time) => {
+      if (!time) return "";
+      const start = String(time).split("-")[0].trim();
+      const [h = "0", m = "0"] = start.split(":");
+      return `${h.padStart(2, "0")}:${m.padStart(2, "0")}`;
+    };
+
+    const bookedSlots = bookedAppointments.map((a) => normalizeStart(a.appointment_time));
 
     // Mark slots as available or booked
     const markSlots = (slots) => slots.map((slot) => {
-      const slotStart = slot.split("-")[0] + ":00"; // "10:00-10:15" → "10:00:00"
+      const slotStart = normalizeStart(slot);
       const isAvailable = !bookedSlots.includes(slotStart);
       return { time: slot, is_available: isAvailable };
     });
