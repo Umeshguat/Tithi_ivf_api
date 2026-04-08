@@ -326,7 +326,7 @@ const getAvailableSlots = async (req, res) => {
     const bookedAppointments = await Appointment.findAll({
       where: {
         appointment_date: date,
-        status: { [Op.in]: ["pending", "confirmed"] },
+        status: { [Op.in]: ["pending", "rescheduled"] },
       },
       attributes: ["appointment_time"],
     });
