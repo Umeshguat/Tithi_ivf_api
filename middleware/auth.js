@@ -6,7 +6,7 @@ const protect = async (req, res, next) => {
 
   if (
     req.headers.authorization &&
-    req.headers.authorization.startsWith("Bearer")
+    req.headers.authorization.startsWith("Bearer ")
   ) {
     token = req.headers.authorization.split(" ")[1];
   }
@@ -16,8 +16,17 @@ const protect = async (req, res, next) => {
   }
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = await User.findByPk(decoded.id);
+    const decoded = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ["HS256"] });
+    const user = await User.findByPk(decoded.id);
+    if (!user) {
+      return res.status(401).json({ success: false, message: "Not authorized, user not found" });
+    }
+    // Revocation: any token issued before the user's last update (password
+    // change, logout) is rejected. (+1s tolerates MySQL DATETIME rounding.)
+    if (user.updatedAt && Math.floor(new Date(user.updatedAt).getTime() / 1000) > decoded.iat + 1) {
+      return res.status(401).json({ success: false, message: "Not authorized, token revoked" });
+    }
+    req.user = user;
     next();
   } catch (error) {
     return res.status(401).json({ success: false, message: "Not authorized, token invalid" });

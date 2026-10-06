@@ -8,16 +8,20 @@ const {
   updateAppointmentStatus,
   getAppointmentDetails,
 } = require("../controllers/appointmentController");
-const { protect } = require("../middleware/auth");
+const { protect, admin } = require("../middleware/auth");
+const { publicLimiter } = require("../middleware/rateLimiter");
 
-// User routes (authenticated)
-router.post("/",  createAppointment);
-router.post("/reschedule",  rescheduleAppointment);
-router.post("/available-slots",  getAvailableSlots);
+// Public (guest booking flow)
+router.post("/", publicLimiter, createAppointment);
+router.post("/available-slots", publicLimiter, getAvailableSlots);
+// Guest lookup: requires booking_id AND mobile
+router.post("/get-appointment-detail", publicLimiter, getAppointmentDetails);
 
-// Admin routes (authenticated)
-router.get("/",  getAppointments);
-router.put("/status",  updateAppointmentStatus);
-router.post("/get-appointment-detail",  getAppointmentDetails);
+// Authenticated
+router.post("/reschedule", protect, rescheduleAppointment);
+
+// Admin only
+router.get("/", protect, admin, getAppointments);
+router.put("/status", protect, admin, updateAppointmentStatus);
 
 module.exports = router;

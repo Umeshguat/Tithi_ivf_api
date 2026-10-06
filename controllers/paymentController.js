@@ -1,3 +1,5 @@
+const { logError } = require("../utils/logger");
+const { Op } = require("sequelize");
 const Razorpay = require("razorpay");
 const crypto = require("crypto");
 const Transaction = require("../models/Transaction");
@@ -9,6 +11,20 @@ const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID,
   key_secret: process.env.RAZORPAY_KEY_SECRET,
 });
+
+// Only allow callback URLs on our own frontend origins (CORS_ORIGINS)
+const isAllowedCallback = (url) => {
+  if (!url) return false;
+  try {
+    const allowed = (process.env.CORS_ORIGINS || "")
+      .split(",")
+      .map((o) => o.trim())
+      .filter(Boolean);
+    return allowed.includes(new URL(url).origin);
+  } catch (e) {
+    return false;
+  }
+};
 
 // @desc    Create Razorpay order
 // @route   POST /api/payments/create-order
@@ -28,11 +44,20 @@ const createOrder = async (req, res) => {
       where: { id: appointment_id },
     });
 
-
-    if (!appointment) {
+    // Not found and not-yours are indistinguishable to the caller
+    if (!appointment || (req.user.role !== "admin" && appointment.user_id !== req.user.id)) {
       return res.status(404).json({
         success: false,
         message: "Appointment not found",
+      });
+    }
+
+    // Amount must match a real service price (never trust the client amount)
+    const service = await Services.findOne({ where: { service_charge: amount } });
+    if (!service) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid service charge amount",
       });
     }
 
@@ -83,7 +108,8 @@ const createOrder = async (req, res) => {
       },
     });
   } catch (error) {
-    res.status(500).json({ status: 500, message: error.message });
+    logError("payment", error);
+    res.status(500).json({ status: 500, message: "Internal server error" });
   }
 };
 
@@ -108,13 +134,12 @@ const verifyPayment = async (req, res) => {
       .update(body)
       .digest("hex");
 
-    if (expectedSignature !== razorpay_signature) {
-      // Update transaction as failed
-      await Transaction.update(
-        { status: "failed" },
-        { where: { razorpay_order_id } }
-      );
-
+    const expectedBuf = Buffer.from(expectedSignature);
+    const givenBuf = Buffer.from(String(razorpay_signature));
+    if (
+      expectedBuf.length !== givenBuf.length ||
+      !crypto.timingSafeEqual(expectedBuf, givenBuf)
+    ) {
       return res.status(400).json({
         success: false,
         message: "Payment verification failed. Invalid signature.",
@@ -126,7 +151,7 @@ const verifyPayment = async (req, res) => {
       where: { razorpay_order_id },
     });
 
-    if (!transaction) {
+    if (!transaction || (req.user.role !== "admin" && transaction.user_id !== req.user.id)) {
       return res.status(404).json({
         success: false,
         message: "Transaction not found",
@@ -145,7 +170,8 @@ const verifyPayment = async (req, res) => {
       data: transaction,
     });
   } catch (error) {
-    res.status(500).json({ status: 500, message: error.message });
+    logError("payment", error);
+    res.status(500).json({ status: 500, message: "Internal server error" });
   }
 };
 
@@ -154,8 +180,10 @@ const verifyPayment = async (req, res) => {
 // @access  Private (User)
 const getMyPayments = async (req, res) => {
   try {
-    const { page = 1, limit = 10, status } = req.query;
-    const offset = (parseInt(page) - 1) * parseInt(limit);
+    const { status } = req.query;
+    const page = Math.max(parseInt(req.query.page) || 1, 1);
+    const limit = Math.min(Math.max(parseInt(req.query.limit) || 10, 1), 100);
+    const offset = (page - 1) * limit;
 
     const where = { user_id: req.user.id };
     if (status) where.status = status;
@@ -168,7 +196,7 @@ const getMyPayments = async (req, res) => {
           as: "appointment",
         },
       ],
-      limit: parseInt(limit),
+      limit,
       offset,
       order: [["createdAt", "DESC"]],
     });
@@ -179,13 +207,14 @@ const getMyPayments = async (req, res) => {
       data: {
         data: rows,
         total: count,
-        current_page: parseInt(page),
-        last_page: Math.ceil(count / parseInt(limit)),
-        per_page: parseInt(limit),
+        current_page: page,
+        last_page: Math.ceil(count / limit),
+        per_page: limit,
       },
     });
   } catch (error) {
-    res.status(500).json({ status: 500, message: error.message });
+    logError("payment", error);
+    res.status(500).json({ status: 500, message: "Internal server error" });
   }
 };
 
@@ -219,7 +248,8 @@ const getPaymentById = async (req, res) => {
       data: transaction,
     });
   } catch (error) {
-    res.status(500).json({ status: 500, message: error.message });
+    logError("payment", error);
+    res.status(500).json({ status: 500, message: "Internal server error" });
   }
 };
 
@@ -228,7 +258,17 @@ const getPaymentById = async (req, res) => {
 // @access  Private (User)
 const createPaymentLink = async (req, res) => {
   try {
-    const { amount, customer_name, customer_email, customer_contact, description, notes, callback_url } = req.body;
+    const { amount, customer_name, customer_email, customer_contact, description, notes, callback_url } = req.body || {};
+
+    if (
+      (customer_name != null && (typeof customer_name !== "string" || customer_name.length > 100)) ||
+      (customer_email != null && customer_email !== "" && !(typeof customer_email === "string" && customer_email.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customer_email))) ||
+      (customer_contact != null && customer_contact !== "" && !/^[0-9+\-\s]{7,15}$/.test(String(customer_contact))) ||
+      (description != null && (typeof description !== "string" || description.length > 255)) ||
+      (notes != null && JSON.stringify(notes).length > 1000)
+    ) {
+      return res.status(400).json({ success: false, message: "Invalid input" });
+    }
 
     if (!amount) {
       return res.status(400).json({
@@ -258,14 +298,30 @@ const createPaymentLink = async (req, res) => {
         email: customer_email || "",
         contact: customer_contact || "",
       },
+      // Notifications are OFF: this endpoint is public, and notify would let
+      // anyone trigger billable SMS/email to arbitrary numbers/addresses.
+      // The customer pays via the returned short_url.
       notify: {
-        sms: true,
-        email: true,
+        sms: false,
+        email: false,
       },
-      reminder_enable: true,
-      callback_url: callback_url || process.env.RAZORPAY_CALLBACK_URL || "",
+      reminder_enable: false,
+      expire_by: Math.floor(Date.now() / 1000) + 24 * 60 * 60,
+      callback_url: isAllowedCallback(callback_url)
+        ? callback_url
+        : process.env.RAZORPAY_CALLBACK_URL || "",
       callback_method: "get",
     };
+
+    // Opportunistic cleanup of abandoned, never-claimed link transactions
+    await Transaction.destroy({
+      where: {
+        payment_method: "razorpay_payment_link",
+        status: "pending",
+        appointment_id: null,
+        createdAt: { [Op.lt]: new Date(Date.now() - 48 * 60 * 60 * 1000) },
+      },
+    });
 
     const paymentLink = await razorpay.paymentLink.create(paymentLinkOptions);
 
@@ -290,7 +346,8 @@ const createPaymentLink = async (req, res) => {
       },
     });
   } catch (error) {
-    res.status(500).json({ status: 500, message: error.message });
+    logError("payment", error);
+    res.status(500).json({ status: 500, message: "Internal server error" });
   }
 };
 

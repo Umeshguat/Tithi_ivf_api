@@ -143,3 +143,40 @@ Global handler and controllers return raw `error.message` (and validation `detai
 3. Add a role check to `ProtectedRoute` and lock `/invoices` + detail endpoints behind ownership checks (#4, #5).
 4. Add `helmet`, an explicit CORS allowlist, and rate limiting on auth + payment endpoints (#6, #7, #10).
 5. Clean up the remainder (JWT lifetime, error verbosity, body limits) (#8, #9).
+
+---
+
+## Remediation status (backend, 2026-10-06)
+
+| # | Status | What changed |
+|---|---|---|
+| 1 | ✅ Fixed | `protect`/`admin` applied: appointments list/status, transactions (all), services/holidays writes, dashboard are admin-only; reschedule needs login (own appointment only). Public by design: create appointment, available-slots, appointment-detail (now needs `booking_id` **and** `mobile`), service/holiday reads, create-payment-link. `protect` now 401s for deleted users. |
+| 2, 11 | ✅ Fixed | `createAppointment` no longer reads `status`/`amount` from the body. It fetches the payment link from Razorpay's API, requires `status === "paid"`, takes the amount/payment id from Razorpay, and rejects reused/unknown links. `createOrder` validates the amount against `Service` prices and appointment ownership. `verifyPayment` uses a timing-safe compare and ownership check, and no longer lets anyone flip transactions to `failed`. |
+| 3 | ⚠️ Manual | Rotate the Razorpay secret + DB password and generate a strong `JWT_SECRET`. Server now refuses to start in production with a missing/weak JWT secret. `.env.example` added. |
+| 4 | ✅ Fixed | `/invoices` static route removed; invoice PDF is streamed (no disk file) to admin/owner only. **API contract change:** `GET /api/transactions/:id/invoice` now returns the PDF itself, not JSON with `invoice_url`. |
+| 5 | ⏳ Frontend | Not in this repo — add a role guard to `ProtectedRoute` in the frontend. |
+| 6 | ✅ Fixed | `express-rate-limit` on login/register, payment endpoints, public booking endpoints. |
+| 7 | ✅ Fixed | CORS allowlist via `CORS_ORIGINS` env (comma-separated). Payment `callback_url` must be on an allowlisted origin. **Set `CORS_ORIGINS` or browsers will be blocked.** |
+| 8 | 🟡 Partial | JWT default expiry 1d (was 30d via env). httpOnly cookies / revocation need frontend work. |
+| 9 | ✅ Fixed | Generic 500 messages; details only in server logs. |
+| 10 | ✅ Fixed | `helmet` added (frontend CSP still to do). |
+| 12 | 🟡 Partial | `mongoose` removed, body limit 100kb, password min 8, pagination caps, status whitelists. Frontend items (`.env` tracking, `document.write` escaping) remain. |
+
+## Round 2 remediation (re-analysis findings)
+
+| Finding | Status | What changed |
+|---|---|---|
+| Payment link double-claim (race) | ✅ Fixed | Booking runs in a DB transaction; the payment-link row is locked (`FOR UPDATE`) and re-checked before it is claimed. |
+| Slot double-booking / arbitrary time | ✅ Fixed | Day's `Availability` row is locked per booking; time must be one of the generated slots; past dates rejected; same check on reschedule (excluding itself). No DB migration needed. |
+| Payment-link SMS/email spam | ✅ Fixed | `notify` and reminders off; contact/email/name/notes validated; link expires in 24h. |
+| Vulnerable dependencies | ✅ Mostly | `npm audit fix` applied: critical/high cleared. Remaining: `sequelize` JSON-cast moderate advisory (only fix is a breaking v7 alpha; the app uses no JSON columns). |
+| `trust proxy` / rate-limit bypass | ✅ Configurable | `TRUST_PROXY` env (default 1). Set to the real proxy hop count, `0` if exposed directly. |
+| Account enumeration | ✅ Fixed | Generic register failure message; login does a dummy bcrypt compare for unknown users. |
+| Guest/account collisions | ✅ Fixed | Guest bookings can't attach to admin accounts; response echoes submitted name, never stored user data. |
+| Orphan payment-link transactions | ✅ Fixed | Unclaimed pending link transactions older than 48h are purged on new link creation. |
+| Input validation | ✅ Fixed | Types/lengths for name, description, duration, date, time, email, notes. |
+| PII in logs | ✅ Fixed | `utils/logger.js` logs name/message only (no SQL/params); stack outside production. |
+| JWT revocation / alg pinning | ✅ Fixed | HS256 pinned on sign+verify; tokens issued before the user's last update are rejected; new `POST /api/auth/logout` revokes tokens. |
+| `sequelize.sync()` in prod | ✅ Optional | `DB_SYNC=false` disables it. |
+| Secret rotation (#3) | ⚠️ Manual | Still requires rotating Razorpay/DB/JWT secrets. |
+| Frontend items | ⏳ Not in repo | Role guard, CSP, token storage, `document.write` escaping. |

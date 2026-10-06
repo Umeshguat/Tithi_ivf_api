@@ -1,4 +1,7 @@
+const crypto = require("crypto");
 const { Op } = require("sequelize");
+const { sequelize } = require("../config/db");
+const { logError } = require("../utils/logger");
 const Appointment = require("../models/Appointment");
 const Availability = require("../models/Availability");
 const BlockedSlot = require("../models/BlockedSlot");
@@ -83,7 +86,7 @@ const blockDateIfAllSlotsBooked = async (date, availability) => {
   const bookedCount = await Appointment.count({
     where: {
       appointment_date: date,
-      status: { [Op.in]: ["pending", "confirmed"] },
+      status: { [Op.in]: ["pending", "confirmed", "rescheduled"] },
     },
   });
 
@@ -116,152 +119,301 @@ const blockDateIfAllSlotsBooked = async (date, availability) => {
   }
 };
 
+// Razorpay client (used to verify payment links server-side)
+const Razorpay = require("razorpay");
+const razorpay = new Razorpay({
+  key_id: process.env.RAZORPAY_KEY_ID,
+  key_secret: process.env.RAZORPAY_KEY_SECRET,
+});
+
+const MOBILE_RE = /^[0-9+\-\s]{7,15}$/;
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const TIME_RE = /^\d{1,2}:\d{2}(:\d{2})?(-\d{1,2}:\d{2}(:\d{2})?)?$/;
+
+// Statuses that occupy a slot
+const ACTIVE_STATUSES = ["pending", "confirmed", "rescheduled"];
+
+// Normalize a time value (e.g. "10:00-10:15", "10:00", "10:00:00") to "HH:mm"
+const normalizeStart = (time) => {
+  if (!time) return "";
+  const start = String(time).split("-")[0].trim();
+  const [h = "0", m = "0"] = start.split(":");
+  return `${h.padStart(2, "0")}:${m.padStart(2, "0")}`;
+};
+
+const isValidTime = (time) => time && time !== "00:00:00";
+
+// Helper: all slot strings (morning + evening) for an availability row
+const getAllSlots = (availability) => {
+  let slots = [];
+  if (isValidTime(availability.morning_start_time) && isValidTime(availability.morning_end_time)) {
+    slots = slots.concat(
+      generateTimeSlots(availability.morning_start_time, availability.morning_end_time, availability.slot_duration)
+    );
+  }
+  if (isValidTime(availability.evening_start_time) && isValidTime(availability.evening_end_time)) {
+    slots = slots.concat(
+      generateTimeSlots(availability.evening_start_time, availability.evening_end_time, availability.slot_duration)
+    );
+  }
+  return slots;
+};
+
+// Today's date (YYYY-MM-DD) in the clinic's timezone
+const todayIST = () =>
+  new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+
+// Validates that a date/time is a real, free slot. MUST be called inside a
+// transaction: it row-locks the day's Availability so concurrent bookings for
+// the same day are serialized (prevents double booking).
+// Returns { availability } on success or { message } on failure.
+const checkSlot = async (date, time, t, excludeAppointmentId = null) => {
+  if (date < todayIST()) {
+    return { message: "Cannot book a date in the past" };
+  }
+
+  const availability = await Availability.findOne({
+    where: { day_of_week: getDayOfWeek(date), is_active: true },
+    transaction: t,
+    lock: t.LOCK.UPDATE,
+  });
+  if (!availability) {
+    return { message: "No availability for this day" };
+  }
+
+  const isBlocked = await BlockedSlot.findOne({
+    where: { blocked_date: date, is_full_day: true },
+    transaction: t,
+  });
+  if (isBlocked) {
+    return { message: "This day is fully booked and not available" };
+  }
+
+  // The requested time must be one of the generated slots for that day
+  const wanted = normalizeStart(time);
+  if (!getAllSlots(availability).some((s) => normalizeStart(s) === wanted)) {
+    return { message: "Invalid time slot for this day" };
+  }
+
+  const where = { appointment_date: date, status: { [Op.in]: ACTIVE_STATUSES } };
+  if (excludeAppointmentId) where.id = { [Op.ne]: excludeAppointmentId };
+  const taken = await Appointment.findAll({
+    where,
+    attributes: ["appointment_time"],
+    transaction: t,
+    lock: t.LOCK.UPDATE,
+  });
+  if (taken.some((a) => normalizeStart(a.appointment_time) === wanted)) {
+    return { message: "This time slot is already booked" };
+  }
+
+  return { availability };
+};
+
 // @desc    Create a new appointment
 // @route   POST /api/appointments
 const createAppointment = async (req, res) => {
+  let t;
   try {
+    // NOTE: status / amount are intentionally NOT read from the client.
+    // They are derived from the Razorpay payment link verified server-side.
+    const { username, mobile, appointment_date, appointment_time, description, payment_link_id } = req.body || {};
+    let { duration } = req.body || {};
 
-    const { username, mobile, appointment_date, appointment_time, description, duration, amount, payment_method = 'Razorpay', status, transaction_id, payment_link_id } = req.body;
-
-    const dayOfWeek = getDayOfWeek(appointment_date);
-
-
-
-    let [user] = await User.findOrCreate({
-      where: { mobile },
-      defaults: { name: username, mobile },
-    });
-    const availability = await Availability.findOne({
-      where: { day_of_week: dayOfWeek, is_active: true },
-    });
-
-    if (!availability) {
-      return res.status(200).json({
+    if (!username || !mobile || !appointment_date || !appointment_time) {
+      return res.status(400).json({
         success: false,
-        message: "No availability for this day",
+        message: "username, mobile, appointment_date and appointment_time are required",
       });
     }
-
-    // Check if the full day is already blocked
-    const isBlocked = await BlockedSlot.findOne({
-      where: { blocked_date: appointment_date, is_full_day: true },
-    });
-
-    if (isBlocked) {
-      return res.status(200).json({
-        success: false,
-        message: "This day is fully booked and not available",
-      });
+    if (
+      typeof username !== "string" || username.trim().length === 0 || username.length > 100 ||
+      !MOBILE_RE.test(String(mobile)) ||
+      !DATE_RE.test(String(appointment_date)) ||
+      !TIME_RE.test(String(appointment_time)) ||
+      (description != null && (typeof description !== "string" || description.length > 500))
+    ) {
+      return res.status(400).json({ success: false, message: "Invalid input" });
+    }
+    if (duration != null) {
+      duration = parseInt(duration, 10);
+      if (!Number.isInteger(duration) || duration < 1 || duration > 240) {
+        return res.status(400).json({ success: false, message: "Invalid duration" });
+      }
     }
 
-    // Check if the requested slot is already booked
-    const isSlotBooked = await Appointment.findOne({
-      where: {
-        appointment_date,
-        appointment_time,
-        status: { [Op.in]: ["pending", "confirmed"] },
-      },
-    });
-
-    if (isSlotBooked) {
-      return res.status(200).json({
-        success: false,
-        message: "This time slot is already booked",
-      });
-    }
-    const appointment = await Appointment.create({
-      user_id: user.id,
-      booking_id: `${Date.now()}`,
-      appointment_date,
-      appointment_time,
-      status: "pending",
-      description,
-      duration,
-    });
-
-    const booking_id = `${appointment.id}${Date.now()}`;
-    await appointment.update({ booking_id });
-
-
-
-    let transaction = null;
-
-
+    // Verify payment with Razorpay (source of truth) before touching the DB
+    let verifiedPayment = null;
     if (payment_link_id) {
-      const transaction = await Transaction.findOne({
-        where: { razorpay_order_id: payment_link_id },
+      const pre = await Transaction.findOne({
+        where: { razorpay_order_id: String(payment_link_id) },
       });
+      if (!pre || pre.appointment_id) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid or already used payment link",
+        });
+      }
 
-      if (transaction) {
-        await transaction.update({
-          user_id: user.id,
-          appointment_id: appointment.id,
-          amount,
-          payment_method,
-          status: status || "pending",
-          transaction_reference: transaction_id || null,
-          razorpay_payment_id: transaction_id || null,
+      const link = await razorpay.paymentLink.fetch(String(payment_link_id));
+      if (!link || link.status !== "paid") {
+        return res.status(402).json({
+          success: false,
+          message: "Payment not completed",
+        });
+      }
+      const paid = Array.isArray(link.payments)
+        ? link.payments.find((p) => p.status === "captured") || link.payments[0]
+        : null;
+      verifiedPayment = {
+        amount: (link.amount_paid || link.amount) / 100,
+        payment_id: paid ? paid.payment_id : null,
+      };
+    }
+
+    t = await sequelize.transaction();
+
+    const slot = await checkSlot(appointment_date, appointment_time, t);
+    if (slot.message) {
+      await t.rollback();
+      return res.status(200).json({ success: false, message: slot.message });
+    }
+
+    // Claim the payment link atomically: lock the row, re-check it is unused
+    let paymentTxn = null;
+    if (payment_link_id) {
+      paymentTxn = await Transaction.findOne({
+        where: { razorpay_order_id: String(payment_link_id) },
+        transaction: t,
+        lock: t.LOCK.UPDATE,
+      });
+      if (!paymentTxn || paymentTxn.appointment_id) {
+        await t.rollback();
+        return res.status(400).json({
+          success: false,
+          message: "Invalid or already used payment link",
         });
       }
     }
 
-    const transactionData = {
-      user_id: user.id,
-      appointment_id: appointment.id,
-      amount,
-      payment_method,
-      status: status || "pending",
-      transaction_reference: transaction_id || null,
-      razorpay_payment_id: transaction_id || null,
-    };
+    const [user] = await User.findOrCreate({
+      where: { mobile },
+      defaults: { name: username.trim(), mobile },
+      transaction: t,
+    });
 
+    // Guest bookings must never attach to staff accounts
+    if (user.role === "admin") {
+      await t.rollback();
+      return res.status(400).json({ success: false, message: "Unable to book with the provided details" });
+    }
 
+    const appointment = await Appointment.create(
+      {
+        user_id: user.id,
+        booking_id: `tmp_${crypto.randomUUID()}`,
+        appointment_date,
+        appointment_time,
+        status: "pending",
+        description,
+        duration: duration || slot.availability.slot_duration,
+      },
+      { transaction: t }
+    );
+
+    const booking_id = `${appointment.id}${Date.now()}`;
+    await appointment.update({ booking_id }, { transaction: t });
+
+    if (paymentTxn) {
+      await paymentTxn.update(
+        {
+          user_id: user.id,
+          appointment_id: appointment.id,
+          amount: verifiedPayment.amount,
+          status: "completed",
+          transaction_reference: verifiedPayment.payment_id,
+          razorpay_payment_id: verifiedPayment.payment_id,
+        },
+        { transaction: t }
+      );
+    }
+
+    await t.commit();
 
     // Auto-block the date if all slots are now booked
-    await blockDateIfAllSlotsBooked(appointment_date, availability);
+    await blockDateIfAllSlotsBooked(appointment_date, slot.availability);
 
     res.status(200).json({
       success: true,
       message: "Appointment created successfully",
       data: {
-        username: user.name,
-        mobile: user.mobile,
+        // Echo what the caller submitted; never expose stored user data
+        username: username.trim(),
+        mobile,
         appointment,
-        transaction: transactionData,
+        transaction: paymentTxn,
       },
     });
   } catch (error) {
-    console.error("Create appointment error:", error);
-    const details = error.errors ? error.errors.map(e => e.message) : [];
-    res.status(500).json({ status: 500, message: error.message, details });
+    if (t && !t.finished) await t.rollback();
+    logError("Create appointment error", error);
+    if (error.name === "SequelizeValidationError") {
+      return res.status(400).json({
+        success: false,
+        message: "Validation failed",
+        details: error.errors.map((e) => e.message),
+      });
+    }
+    res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
 
 // @desc    Reschedule an appointment
-// @route   PUT /api/appointments/reschedule
+// @route   POST /api/appointments/reschedule
 const rescheduleAppointment = async (req, res) => {
+  let t;
   try {
+    const { user_id, appointment_date, appointment_time } = req.body || {};
 
-    const { user_id, appointment_date, appointment_time } = req.body;
+    if (!DATE_RE.test(String(appointment_date)) || !TIME_RE.test(String(appointment_time))) {
+      return res.status(400).json({ success: false, message: "Invalid appointment_date or appointment_time" });
+    }
+
+    // Non-admins can only reschedule their own appointment
+    const targetUserId = req.user.role === "admin" && user_id ? user_id : req.user.id;
+
+    t = await sequelize.transaction();
 
     const appointment = await Appointment.findOne({
-      where: { user_id: user_id },
-      order: [['createdAt', 'DESC']]
+      where: { user_id: targetUserId, status: { [Op.in]: ACTIVE_STATUSES } },
+      order: [["createdAt", "DESC"]],
+      transaction: t,
+      lock: t.LOCK.UPDATE,
     });
 
-
     if (!appointment) {
+      await t.rollback();
       return res.status(404).json({
         success: false,
         message: "Appointment not found",
       });
     }
 
-    await appointment.update({
-      appointment_date,
-      appointment_time,
-      status: "rescheduled",
-    });
+    const slot = await checkSlot(appointment_date, appointment_time, t, appointment.id);
+    if (slot.message) {
+      await t.rollback();
+      return res.status(200).json({ success: false, message: slot.message });
+    }
+
+    await appointment.update(
+      {
+        appointment_date,
+        appointment_time,
+        status: "rescheduled",
+      },
+      { transaction: t }
+    );
+    await t.commit();
 
     res.status(200).json({
       success: true,
@@ -269,7 +421,9 @@ const rescheduleAppointment = async (req, res) => {
       data: appointment,
     });
   } catch (error) {
-    res.status(500).json({ status: 500, message: error.message });
+    if (t && !t.finished) await t.rollback();
+    logError("Reschedule appointment error", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
 
@@ -326,7 +480,7 @@ const getAvailableSlots = async (req, res) => {
     const bookedAppointments = await Appointment.findAll({
       where: {
         appointment_date: date,
-        status: { [Op.in]: ["pending", "rescheduled"] },
+        status: { [Op.in]: ["pending", "confirmed", "rescheduled"] },
       },
       attributes: ["appointment_time"],
     });
@@ -369,7 +523,8 @@ const getAvailableSlots = async (req, res) => {
       holidays,
     });
   } catch (error) {
-    res.status(500).json({ status: 500, message: error.message });
+    logError("appointment", error);
+    res.status(500).json({ status: 500, message: "Internal server error" });
   }
 };
 
@@ -377,8 +532,10 @@ const getAvailableSlots = async (req, res) => {
 // @route   GET /api/appointments
 const getAppointments = async (req, res) => {
   try {
-    const { date, status, payment_status, page = 1, limit = 10 } = req.query;
-    const offset = (parseInt(page) - 1) * parseInt(limit);
+    const { date, status, payment_status } = req.query;
+    const page = Math.max(parseInt(req.query.page) || 1, 1);
+    const limit = Math.min(Math.max(parseInt(req.query.limit) || 10, 1), 100);
+    const offset = (page - 1) * limit;
 
     const where = {};
     if (date) {
@@ -411,7 +568,7 @@ const getAppointments = async (req, res) => {
     const { count, rows } = await Appointment.findAndCountAll({
       where,
       include,
-      limit: parseInt(limit),
+      limit,
       offset,
       order: [["createdAt", "DESC"]],
     });
@@ -422,13 +579,14 @@ const getAppointments = async (req, res) => {
       data: {
         data: rows,
         total: count,
-        current_page: parseInt(page),
-        last_page: Math.ceil(count / parseInt(limit)),
-        per_page: parseInt(limit),
+        current_page: page,
+        last_page: Math.ceil(count / limit),
+        per_page: limit,
       },
     });
   } catch (error) {
-    res.status(500).json({ status: 500, message: error.message });
+    logError("appointment", error);
+    res.status(500).json({ status: 500, message: "Internal server error" });
   }
 };
 
@@ -437,6 +595,11 @@ const getAppointments = async (req, res) => {
 const updateAppointmentStatus = async (req, res) => {
   try {
     const { appointment_id, status } = req.body;
+
+    const ALLOWED_STATUSES = ["pending", "confirmed", "completed", "cancelled", "rescheduled"];
+    if (!ALLOWED_STATUSES.includes(status)) {
+      return res.status(400).json({ success: false, message: "Invalid status" });
+    }
 
     const appointment = await Appointment.findByPk(appointment_id);
 
@@ -456,7 +619,8 @@ const updateAppointmentStatus = async (req, res) => {
       data: appointment,
     });
   } catch (error) {
-    res.status(500).json({ status: 500, message: error.message });
+    logError("appointment", error);
+    res.status(500).json({ status: 500, message: "Internal server error" });
   }
 };
 
@@ -466,20 +630,20 @@ const getAppointmentDetails = async (req, res) => {
   try {
     const { booking_id, mobile } = req.body;
 
+    if (!booking_id || !mobile) {
+      return res.status(400).json({
+        success: false,
+        message: "booking_id and mobile are required",
+      });
+    }
+
     const appointment = await Appointment.findOne({
       where: { booking_id },
       include: [{ model: User, as: "user" }],
     });
 
 
-    if (mobile && appointment?.user?.mobile !== mobile) {
-      return res.status(404).json({
-        success: false,
-        message: "Appointment not found for the provided mobile number",
-      });
-    }
-
-    if (!appointment) {
+    if (!appointment || appointment.user?.mobile !== mobile) {
       return res.status(404).json({
         success: false,
         message: "Appointment not found",
@@ -492,7 +656,8 @@ const getAppointmentDetails = async (req, res) => {
       data: appointment,
     });
   } catch (error) {
-    res.status(500).json({ status: 500, message: error.message });
+    logError("appointment", error);
+    res.status(500).json({ status: 500, message: "Internal server error" });
   }
 };
 

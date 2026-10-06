@@ -1,22 +1,24 @@
-const path = require("path");
-const fs = require("fs");
+const { logError } = require("../utils/logger");
 const PDFDocument = require("pdfkit");
 const Transaction = require("../models/Transaction");
 const Appointment = require("../models/Appointment");
 const User = require("../models/User");
 
-const INVOICES_DIR = path.join(__dirname, "..", "invoices");
+const TRANSACTION_STATUSES = ["pending", "completed", "failed", "refunded"];
 
-// Ensure invoices directory exists
-if (!fs.existsSync(INVOICES_DIR)) {
-  fs.mkdirSync(INVOICES_DIR, { recursive: true });
-}
+// Admins can access any transaction; users only their own
+const canAccess = (user, transaction) =>
+  user.role === "admin" || transaction.user_id === user.id;
 
 // @desc    Create a new transaction
 // @route   POST /api/transactions
 const createTransaction = async (req, res) => {
   try {
     const { appointment_id, amount, payment_method, status, transaction_reference, notes } = req.body;
+
+    if (status && !TRANSACTION_STATUSES.includes(status)) {
+      return res.status(400).json({ success: false, message: "Invalid status" });
+    }
 
     const appointment = await Appointment.findOne({
       where: { id: appointment_id },
@@ -55,7 +57,8 @@ const createTransaction = async (req, res) => {
       data: transaction,
     });
   } catch (error) {
-    res.status(500).json({ status: 500, message: error.message });
+    logError("transaction", error);
+    res.status(500).json({ status: 500, message: "Internal server error" });
   }
 };
 
@@ -63,8 +66,10 @@ const createTransaction = async (req, res) => {
 // @route   GET /api/transactions
 const getTransactions = async (req, res) => {
   try {
-    const { status, payment_method, page = 1, limit = 10 } = req.query;
-    const offset = (parseInt(page) - 1) * parseInt(limit);
+    const { status, payment_method } = req.query;
+    const page = Math.max(parseInt(req.query.page) || 1, 1);
+    const limit = Math.min(Math.max(parseInt(req.query.limit) || 10, 1), 100);
+    const offset = (page - 1) * limit;
 
     const where = {};
     if (status) where.status = status;
@@ -79,7 +84,7 @@ const getTransactions = async (req, res) => {
           include: [{ model: User, as: "user" }],
         },
       ],
-      limit: parseInt(limit),
+      limit,
       offset,
       order: [["createdAt", "DESC"]],
     });
@@ -90,13 +95,14 @@ const getTransactions = async (req, res) => {
       data: {
         data: rows,
         total: count,
-        current_page: parseInt(page),
-        last_page: Math.ceil(count / parseInt(limit)),
-        per_page: parseInt(limit),
+        current_page: page,
+        last_page: Math.ceil(count / limit),
+        per_page: limit,
       },
     });
   } catch (error) {
-    res.status(500).json({ status: 500, message: error.message });
+    logError("transaction", error);
+    res.status(500).json({ status: 500, message: "Internal server error" });
   }
 };
 
@@ -117,7 +123,7 @@ const getTransactionById = async (req, res) => {
       ],
     });
 
-    if (!transaction) {
+    if (!transaction || !canAccess(req.user, transaction)) {
       return res.status(404).json({
         success: false,
         message: "Transaction not found",
@@ -130,7 +136,8 @@ const getTransactionById = async (req, res) => {
       data: transaction,
     });
   } catch (error) {
-    res.status(500).json({ status: 500, message: error.message });
+    logError("transaction", error);
+    res.status(500).json({ status: 500, message: "Internal server error" });
   }
 };
 
@@ -150,6 +157,10 @@ const updateTransaction = async (req, res) => {
       });
     }
 
+    if (status && !TRANSACTION_STATUSES.includes(status)) {
+      return res.status(400).json({ success: false, message: "Invalid status" });
+    }
+
     if (status) transaction.status = status;
     if (payment_method) transaction.payment_method = payment_method;
     if (transaction_reference) transaction.transaction_reference = transaction_reference;
@@ -163,7 +174,8 @@ const updateTransaction = async (req, res) => {
       data: transaction,
     });
   } catch (error) {
-    res.status(500).json({ status: 500, message: error.message });
+    logError("transaction", error);
+    res.status(500).json({ status: 500, message: "Internal server error" });
   }
 };
 
@@ -184,7 +196,7 @@ const generateInvoice = async (req, res) => {
       ],
     });
 
-    if (!transaction) {
+    if (!transaction || !canAccess(req.user, transaction) || !transaction.appointment) {
       return res.status(404).json({
         success: false,
         message: "Transaction not found",
@@ -193,13 +205,17 @@ const generateInvoice = async (req, res) => {
 
     const appointment = transaction.appointment;
     const user = appointment.user;
-    const fileName = `invoice_${transaction.id}_${Date.now()}.pdf`;
-    const filePath = path.join(INVOICES_DIR, fileName);
 
-    // Create PDF
+    // Create PDF and stream it straight to the (authorized) caller;
+    // nothing is written to a world-readable path.
     const doc = new PDFDocument({ size: "A4", margin: 50 });
-    const stream = fs.createWriteStream(filePath);
-    doc.pipe(stream);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="invoice_${transaction.id}.pdf"`
+    );
+    res.setHeader("Cache-Control", "private, no-store");
+    doc.pipe(res);
 
     // --- Header ---
     doc
@@ -358,37 +374,11 @@ const generateInvoice = async (req, res) => {
     doc.text("Thank you for choosing Tithi IVF.", { align: "center" });
 
     doc.end();
-
-    stream.on("finish", () => {
-      const baseUrl = `${req.protocol}://${req.get("host")}`;
-      const invoiceUrl = `${baseUrl}/invoices/${fileName}`;
-
-      res.status(200).json({
-        success: true,
-        message: "Invoice generated successfully",
-        data: {
-          invoice_url: invoiceUrl,
-          transaction_id: transaction.id,
-          appointment_id: appointment.id,
-          patient_name: user.name,
-          amount: transaction.amount,
-          status: transaction.status,
-          booking_summary: {
-            appointment_date: appointment.appointment_date,
-            appointment_time: appointment.appointment_time,
-            duration: appointment.duration,
-            description: appointment.description,
-            appointment_status: appointment.status,
-          },
-        },
-      });
-    });
-
-    stream.on("error", (err) => {
-      res.status(500).json({ status: 500, message: err.message });
-    });
   } catch (error) {
-    res.status(500).json({ status: 500, message: error.message });
+    logError("transaction", error);
+    if (!res.headersSent) {
+      res.status(500).json({ success: false, message: "Internal server error" });
+    }
   }
 };
 

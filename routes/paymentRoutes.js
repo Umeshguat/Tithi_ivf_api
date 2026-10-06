@@ -1,6 +1,7 @@
 const express = require("express");
 const router = express.Router();
-const { protect } = require("../middleware/auth");
+const { protect, admin } = require("../middleware/auth");
+const { paymentLimiter } = require("../middleware/rateLimiter");
 const {
   createOrder,
   verifyPayment,
@@ -9,9 +10,10 @@ const {
   createPaymentLink,
 } = require("../controllers/paymentController");
 
-router.post("/create-order",  createOrder);
-router.post("/create-payment-link", createPaymentLink);
-router.post("/verify",  verifyPayment);
+router.post("/create-order", protect, paymentLimiter, createOrder);
+// Public: used by the guest booking flow (amount is validated against Service prices)
+router.post("/create-payment-link", paymentLimiter, createPaymentLink);
+router.post("/verify", protect, verifyPayment);
 router.get("/my-payments", protect, getMyPayments);
 router.get("/:id", protect, getPaymentById);
 

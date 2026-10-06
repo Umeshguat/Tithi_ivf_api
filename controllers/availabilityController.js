@@ -1,3 +1,4 @@
+const { logError } = require("../utils/logger");
 const Availability = require("../models/Availability");
 const User = require("../models/User");
 
@@ -31,7 +32,8 @@ const createAvailability = async (req, res) => {
       data: availability,
     });
   } catch (error) {
-    res.status(500).json({ status: 500, message: error.message });
+    logError("availability", error);
+    res.status(500).json({ status: 500, message: "Internal server error" });
   }
 };
 
@@ -60,7 +62,8 @@ const getAvailabilities = async (req, res) => {
       },
     });
   } catch (error) {
-    res.status(500).json({ status: 500, message: error.message });
+    logError("availability", error);
+    res.status(500).json({ status: 500, message: "Internal server error" });
   }
 };
 
@@ -83,7 +86,8 @@ const getAvailability = async (req, res) => {
       data: availability,
     });
   } catch (error) {
-    res.status(500).json({ status: 500, message: error.message });
+    logError("availability", error);
+    res.status(500).json({ status: 500, message: "Internal server error" });
   }
 };
 
@@ -118,7 +122,8 @@ const updateAvailability = async (req, res) => {
       data: availability,
     });
   } catch (error) {
-    res.status(500).json({ status: 500, message: error.message });
+    logError("availability", error);
+    res.status(500).json({ status: 500, message: "Internal server error" });
   }
 };
 
@@ -142,7 +147,8 @@ const deleteAvailability = async (req, res) => {
       message: "Availability deleted successfully",
     });
   } catch (error) {
-    res.status(500).json({ status: 500, message: error.message });
+    logError("availability", error);
+    res.status(500).json({ status: 500, message: "Internal server error" });
   }
 };
 
@@ -173,7 +179,8 @@ const getAllUsers = async (req, res) => {
 
     });
   } catch (error) {
-    res.status(500).json({ status: 500, message: error.message });
+    logError("availability", error);
+    res.status(500).json({ status: 500, message: "Internal server error" });
   }
 }
 

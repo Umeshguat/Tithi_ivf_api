@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const { protect } = require("../middleware/auth");
+const { protect, admin } = require("../middleware/auth");
 const {
   createHoliday,
   getAllHolidays,
@@ -9,10 +9,10 @@ const {
   deleteHoliday,
 } = require("../controllers/holidayController");
 
-router.post("/", protect, createHoliday);
+router.post("/", protect, admin, createHoliday);
 router.get("/", getAllHolidays);
 router.get("/:id", getHolidayById);
-router.post("/update", protect, updateHoliday);
-router.delete("/:id", protect, deleteHoliday);
+router.post("/update", protect, admin, updateHoliday);
+router.delete("/:id", protect, admin, deleteHoliday);
 
 module.exports = router;
