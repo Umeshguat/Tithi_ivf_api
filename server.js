@@ -46,7 +46,7 @@ const startServer = async () => {
   require("./models/Availability");
   require("./models/BlockedSlot");
   require("./models/Holiday");
-  await sequelize.sync({ alter: true });
+  await sequelize.sync();
   console.log("✅ Database tables synced");
   app.listen(PORT, () => {
     console.log(`🟢 Server running on port ${PORT}`);
