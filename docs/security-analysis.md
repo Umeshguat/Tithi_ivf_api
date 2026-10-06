@@ -180,3 +180,48 @@ Global handler and controllers return raw `error.message` (and validation `detai
 | `sequelize.sync()` in prod | ✅ Optional | `DB_SYNC=false` disables it. |
 | Secret rotation (#3) | ⚠️ Manual | Still requires rotating Razorpay/DB/JWT secrets. |
 | Frontend items | ⏳ Not in repo | Role guard, CSP, token storage, `document.write` escaping. |
+
+## Architecture clarification & follow-up (2026-10-06)
+
+**Clarified design:** patients **never authenticate**. They book as guests via `/book`
+and view bookings via `/view-booking`, which is gated by **booking_id + mobile**
+(both required, mobile must match — enforced server-side in `getAppointmentDetails`).
+`PatientLayout` and the `/patient/*` routes are unused. **Only admins log in.**
+
+### Impact on earlier findings
+
+- **#5 (frontend admin role guard) — downgraded 🟠 High → 🟢 Low.** With no patient
+  login there is no logged-in patient to pivot into `/admin`, and the backend already
+  enforces `admin` on every sensitive endpoint (verified). A non-admin token (e.g. a
+  leftover `user`) could at most *render* the admin shell while every API call 403s.
+  A role guard was still added as UI defense-in-depth.
+- **New finding — public self-registration is unnecessary attack surface.**
+  `POST /api/auth/register` let anyone mint `user` accounts (DB growth, token issuance,
+  bcrypt CPU, enumeration target) for a product that has no patient accounts. **Disabled.**
+
+### Changes applied (reversible / commented-out)
+
+| Area | Change |
+|---|---|
+| `routes/authRoutes.js` | `POST /register` route commented out (self-registration disabled). |
+| `controllers/authController.js` | Login response now includes `role` so the UI can verify admin. |
+| `frontend ProtectedRoute.tsx` | Requires `user.role === "admin"`; redirects to `/admin-login` (was `/login`). |
+| `frontend useUserStore.ts` | `User` type gains optional `role`. |
+| `frontend AdminLogin.tsx` | Stores `role` from the login response. |
+| `frontend App.tsx` | Patient imports + `/patient/*`, `/login`, `/signup` routes commented out. |
+| `frontend PublicLayout.tsx` | Mobile nav: removed `/patient/profile` link; fixed dead `/login` link → `/view-booking`. |
+
+> Note: existing admin sessions in `localStorage` predate the `role` field, so admins
+> must log in once after this change for the guard to pass.
+
+### Still pending / manual
+
+- **#3 secrets NOT rotated** — `backend/.env.production` still holds the original live
+  Razorpay secret + DB password. Rotate them.
+- **Production `.env` gaps** — set `CORS_ORIGINS` (empty allowlist blocks all browsers),
+  `NODE_ENV=production` (enables the weak-JWT fail-fast), `DB_SYNC=false`, and lower
+  `JWT_EXPIRE` from `30d` (it overrides the new 1d default).
+- **Other frontend hardening** — CSP, token storage, `document.write` escaping, `.env`
+  git-tracking.
+- **Dead client methods** — `bookingApis.lookupBooking/verifyAndGetBooking` call
+  `/booking/lookup` and `/booking/verify`, which don't exist on the backend; remove or implement.

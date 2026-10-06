@@ -5,7 +5,10 @@ const { protect, admin } = require("../middleware/auth");
 const { authLimiter } = require("../middleware/rateLimiter");
 
 
-router.post("/register", authLimiter, register);
+// Public self-registration is DISABLED: patients never log in (they book as
+// guests via /book and view via /view-booking). Admin accounts are provisioned
+// directly in the DB. Re-enable only if a patient-account feature returns.
+// router.post("/register", authLimiter, register);
 router.post("/login", authLimiter, login);
 router.post("/logout", protect, logout);
 router.get("/profile", protect, getProfile);

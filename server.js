@@ -61,7 +61,7 @@ app.use("/api/holidays", require("./routes/holidayRoutes"));
 
 // Health check
 app.get("/", (req, res) => {
-  res.json({ message: "API is running" });
+  res.status(200).json({ ok: true, status: "success", message: "🟢 API is running" });
 });
 
 // Error handler (must be after routes)
